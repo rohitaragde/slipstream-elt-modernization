@@ -1,0 +1,22 @@
+# Python virtual environment
+venv/
+__pycache__/
+*.pyc
+
+# DuckDB database (rebuilt by ingest.py)
+*.duckdb
+*.duckdb.wal
+
+# dbt generated files
+target/
+dbt_packages/
+
+# working data folder (ingest.py rebuilds it from datasources/)
+data/
+
+# run logs
+logs/
+
+# environment secrets and OS files
+.env
+.DS_Store
