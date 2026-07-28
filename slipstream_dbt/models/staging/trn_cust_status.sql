@@ -5,4 +5,4 @@ SELECT
         try_strptime(Paid_Date, '%-d/%-m/%Y')
     ) AS paid_date,
     run_date
-FROM stg_cust_status
+FROM {{ source('slipstream', 'stg_cust_status') }}

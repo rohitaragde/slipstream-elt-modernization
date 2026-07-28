@@ -16,4 +16,4 @@ SELECT
         ELSE NULL
     END AS pin,
     run_date
-FROM stg_cust_profile
+FROM {{ source('slipstream', 'stg_cust_profile') }}

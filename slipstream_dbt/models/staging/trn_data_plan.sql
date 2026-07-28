@@ -8,6 +8,6 @@ SELECT
         try_strptime(REPLACE(dp.load_date, '-', '/'), '%-d/%-m/%Y')
     ) AS load_date,
     dp.run_date
-FROM stg_data_plan dp
+FROM {{ source('slipstream', 'stg_data_plan') }} dp
 LEFT JOIN {{ ref('trn_plan_master') }} pm
     ON dp.Plan_Type = pm.plan_type

@@ -7,4 +7,4 @@ SELECT
     " rate_per_minute"     AS rate_per_minute,
     sms_rate,
     run_date
-FROM stg_plan_master
+FROM {{ source('slipstream', 'stg_plan_master') }}

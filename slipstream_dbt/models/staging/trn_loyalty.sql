@@ -14,4 +14,4 @@ SELECT
         try_strptime(REPLACE(Reg_date_time, '-', '/'), '%-d/%-m/%Y')
     ) AS reg_date,
     run_date
-FROM stg_loyalty
+FROM {{ source('slipstream', 'stg_loyalty') }}

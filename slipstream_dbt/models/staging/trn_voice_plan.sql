@@ -26,6 +26,6 @@ SELECT
         try_strptime(vp.load_date, '%-d/%-m/%Y')
     ) AS load_date,
     vp.run_date
-FROM stg_voice_plan vp
+FROM {{ source('slipstream', 'stg_voice_plan') }} vp
 LEFT JOIN {{ ref('trn_plan_master') }} pm
     ON vp.Plan_Type = pm.plan_type

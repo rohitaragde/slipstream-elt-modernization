@@ -1,0 +1,13 @@
+version: 2
+
+sources:
+  - name: slipstream
+    description: Staging tables loaded from CSV by ingestion/ingest.py
+    schema: main
+    tables:
+      - name: stg_cust_profile
+      - name: stg_cust_status
+      - name: stg_loyalty
+      - name: stg_plan_master
+      - name: stg_data_plan
+      - name: stg_voice_plan
