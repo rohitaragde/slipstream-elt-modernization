@@ -1,0 +1,78 @@
+version: 2
+
+models:
+  - name: trn_cust_profile
+    description: Cleaned customer demographics. Address split into address/state_cd/pin.
+    columns:
+      - name: sbscrbr
+        description: Subscriber ID (primary key)
+        tests: [unique, not_null]
+      - name: customer_name
+        tests: [not_null]
+
+  - name: trn_cust_status
+    description: Customer payment status. Paid_Date arrived in two mixed formats.
+    columns:
+      - name: sbscrbr
+        tests: [unique, not_null]
+      - name: paid_date
+        tests: [not_null]
+
+  - name: trn_loyalty
+    description: Loyalty tier and points. Badge codes decoded to full names.
+    columns:
+      - name: sbscrbr
+        tests: [unique, not_null]
+      - name: loyalty_badge
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Bronze', 'Silver', 'Gold', 'Platinum']
+      - name: reg_date
+        tests: [not_null]
+
+  - name: trn_plan_master
+    description: Plan rate card. Source column names had leading spaces, cleaned here.
+    columns:
+      - name: plan_type
+        description: Plan code (primary key)
+        tests: [unique, not_null]
+      - name: data_rate_per_kb
+        tests: [not_null]
+      - name: rate_per_minute
+        tests: [not_null]
+
+  - name: trn_data_plan
+    description: Data usage and billing. Charged from the first KB, no free allowance.
+    columns:
+      - name: sbscrbr
+        tests: [not_null]
+      - name: plan_type
+        tests:
+          - not_null
+          - relationships:
+              to: ref('trn_plan_master')
+              field: plan_type
+      - name: billable_data_amt
+        tests: [not_null]
+      - name: load_date
+        tests: [not_null]
+
+  - name: trn_voice_plan
+    description: Voice and SMS usage with allowance-based billing.
+    columns:
+      - name: sbscrbr
+        tests: [not_null]
+      - name: plan_type
+        tests:
+          - not_null
+          - relationships:
+              to: ref('trn_plan_master')
+              field: plan_type
+      - name: billable_voice_amt
+        tests: [not_null]
+      - name: billable_sms_amt
+        tests: [not_null]
+      - name: load_date
+        tests: [not_null]
