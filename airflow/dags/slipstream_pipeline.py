@@ -10,9 +10,15 @@ own virtualenv, invoked by absolute path.
 The final task is a data quality gate: it reconciles source, staging and
 model row counts, checks dbt test results, and posts the full report to
 Slack. A mismatch fails the task.
+
+On any task failure, the Slack alert includes the actual error lines
+pulled from the project's own logs, rather than only a link into the
+Airflow UI - so someone unfamiliar with Airflow can see what broke.
 """
 
+import re
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import requests
 from airflow import DAG
@@ -24,12 +30,37 @@ DBT_DIR = f"{PROJECT_DIR}/slipstream_dbt"
 DBT_VENV = "/home/rohit/dbt-venv/bin"
 
 
+def recent_errors(max_lines=12):
+    """Pull the actual error lines from project logs, newest last."""
+    candidates = []
+    log_dir = Path(PROJECT_DIR) / "logs"
+    if log_dir.exists():
+        candidates += sorted(log_dir.glob("ingest_*.log"), reverse=True)[:1]
+    dbt_log = Path(PROJECT_DIR) / "slipstream_dbt" / "logs" / "dbt.log"
+    if dbt_log.exists():
+        candidates.append(dbt_log)
+
+    pattern = re.compile(r"error|fail|exception|traceback", re.I)
+    found = []
+    for path in candidates:
+        try:
+            lines = path.read_text(errors="replace").splitlines()
+            hits = [ln.strip() for ln in lines if pattern.search(ln)]
+            if hits:
+                found.append(f"--- {path.name} ---")
+                found += hits[-max_lines:]
+        except Exception:
+            continue
+    return found
+
+
 def notify_failure(context):
     """Alert on any task failure. Never raises - alerting must not fail the run."""
     try:
         webhook = Variable.get("slack_webhook_url", default_var=None)
         if not webhook:
             return
+
         ti = context["task_instance"]
         blocks = [
             {
@@ -42,11 +73,28 @@ def notify_failure(context):
                             f"*Attempt:* {ti.try_number}",
                 },
             },
+        ]
+
+        errors = recent_errors()
+        if errors:
+            excerpt = "\n".join(errors)[:2800]  # Slack block text limit
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*What went wrong*\n```{excerpt}```",
+                    },
+                }
+            )
+
+        blocks.append(
             {
                 "type": "context",
-                "elements": [{"type": "mrkdwn", "text": f"<{ti.log_url}|View logs>"}],
-            },
-        ]
+                "elements": [{"type": "mrkdwn", "text": f"<{ti.log_url}|View full logs in Airflow>"}],
+            }
+        )
+
         requests.post(
             webhook,
             json={"text": f"Slipstream failed: {ti.task_id}", "blocks": blocks},
@@ -78,9 +126,15 @@ with DAG(
         bash_command=f"cp {PROJECT_DIR}/datasources/*.csv {PROJECT_DIR}/data/raw/",
     )
 
+    # retries=0: ingest.py MOVES each source file to data/archive/ as soon as
+    # it loads successfully. If it later fails on a different file, a retry
+    # of this task finds data/raw empty - the prior attempt already consumed
+    # everything that worked - so every file fails on retry, including ones
+    # that were fine. Retrying isn't safe here; fail fast instead.
     ingest = BashOperator(
         task_id="ingest_csv_to_duckdb",
         bash_command=f"{DBT_VENV}/python {PROJECT_DIR}/ingestion/ingest.py",
+        retries=0,
     )
 
     dbt_run = BashOperator(

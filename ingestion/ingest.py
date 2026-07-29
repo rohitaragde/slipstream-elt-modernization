@@ -2,6 +2,7 @@
 # Replaces: loadCustomer.tpt, loadCustomerStats.tpt, loadLoyalty.tpt,
 #           loadPlanMaster.tpt, loadDataPlanRun.tpt, loadVoicePlanRun.tpt
 
+import sys
 import pandas as pd
 import duckdb
 import os
@@ -120,14 +121,32 @@ def main():
     for table_name in set(FILES.values()):
         con.execute(f'DROP TABLE IF EXISTS {table_name}')
 
+    # ---- FIX #6: a failed file must fail the task ----
+    # Logging the error and continuing left the exit code at 0, so Airflow
+    # marked ingestion green while data was silently missing. Collect the
+    # failures and exit non-zero so the scheduler - and the Slack failure
+    # callback - actually see them.
+    failed = []
+
     for filename, table_name in FILES.items():
         try:
             ingest_file(filename, table_name, con)
         except Exception as e:
             logging.error(f'FAILED: {filename} | Error: {e}')
             print(f'ERROR loading {filename}: {e}')
+            failed.append(filename)
 
     con.close()
+
+    if failed:
+        logging.error(f'Ingestion failed for {len(failed)} file(s): {failed}')
+        print('=' * 50)
+        print(f'INGESTION FAILED - {len(failed)} of {len(FILES)} file(s)')
+        for f in failed:
+            print(f'  {f}')
+        print('=' * 50)
+        sys.exit(1)
+
     logging.info('Pipeline completed')
     print('=' * 50)
     print('INGESTION COMPLETE')
