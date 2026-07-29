@@ -24,7 +24,7 @@ flowchart LR
     D --> E[Streamlit dashboard]
     D -->|Block Kit| F[Slack alerts]
 
-    subgraph Airflow DAG · daily 02:00
+    subgraph sg["Airflow DAG — daily 02:00"]
         A2[stage_source_files] --> A3[ingest_csv_to_duckdb] --> A4[dbt_run] --> A5[dbt_test] --> A6[data_quality_report]
     end
 ```
@@ -170,7 +170,27 @@ python quality/report.py
 streamlit run dashboard/app.py
 ```
 
-Or run the whole chain through Airflow by triggering the `slipstream_pipeline` DAG.
+The four steps above run each layer by hand. To run the **whole chain orchestrated**, use the Airflow DAG instead:
+
+```bash
+# one-time setup (WSL / Linux) — dbt and Airflow need SEPARATE venvs
+python3.12 -m venv ~/airflow-venv && source ~/airflow-venv/bin/activate
+pip install "apache-airflow==2.10.5" --constraint <official constraints-3.12 url>
+deactivate
+python3.12 -m venv ~/dbt-venv && source ~/dbt-venv/bin/activate
+pip install dbt-duckdb pandas duckdb
+deactivate
+
+# register the Slack webhook (kept out of the repo)
+airflow variables set slack_webhook_url "https://hooks.slack.com/services/…"
+
+# start Airflow, then trigger the pipeline
+source ~/airflow-venv/bin/activate
+airflow standalone            # or: airflow scheduler + airflow webserver
+airflow dags trigger slipstream_pipeline
+```
+
+The DAG runs `stage_source_files → ingest_csv_to_duckdb → dbt_run → dbt_test → data_quality_report` and posts the result to Slack. See [Orchestration](#3-orchestration-airflowdagsslipstream_pipelinepy) for why the two venvs are required and how `AIRFLOW_HOME` is configured on WSL.
 
 ---
 
