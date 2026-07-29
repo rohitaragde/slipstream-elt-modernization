@@ -4,6 +4,8 @@ A legacy Teradata billing pipeline rebuilt end to end on a modern, open-source d
 
 **🔗 Live dashboard:** [slipstream-analytics.streamlit.app](https://slipstream-analytics.streamlit.app/)
 
+![Slipstream Analytics dashboard](docs/dashboard.png)
+
 ---
 
 ## Why this project
@@ -131,6 +133,14 @@ The final DAG task, and the safety net. Four checks:
 4. **Business metrics** — billable totals and customer counts, logged each run.
 
 It writes `quality_row_history` and `quality_metric_history` tables to DuckDB every run (this history feeds the dashboard's Pipeline health panel) and posts a Block Kit report to Slack — with, on failure, the log paths and a ready-to-run grep command so someone without Airflow access can still investigate.
+
+**A clean run** posts the reconciliation table and the dbt test summary:
+
+![Slack success report](docs/slack-success.png)
+
+**A failed run** fires the failure callback with the ingestion error log and the failed-file list, plus a link back to the full Airflow logs:
+
+![Slack failure alert](docs/slack-failure.png)
 
 ### 5. Dashboard (`dashboard/app.py`)
 
