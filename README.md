@@ -4,8 +4,8 @@ A legacy Teradata ELT pipeline, rebuilt on a modern open-source stack.
 
 The original Slipstream project loaded telecom subscriber and usage data into Teradata using
 BTEQ and TPT utilities, orchestrated by shell scripts. This repository rebuilds the same
-pipeline — same source data, same star schema, same business logic — using Python, DuckDB and
-dbt.
+pipeline — same source data, same star schema, same business logic — using Python, DuckDB,
+dbt and Airflow.
 
 ---
 
@@ -22,7 +22,7 @@ replaces several Teradata-specific workarounds with native functions.
 |-------|----------|------------|
 | Extract / Load | TPT (`tbuild -f load*.tpt`) | Python + pandas → DuckDB |
 | Transform | BTEQ → `StgToTrn` stored proc | dbt models |
-| Orchestration | `loadStg.sh` shell script | *(planned: Airflow)* |
+| Orchestration | `loadStg.sh` shell script | Airflow DAG |
 | Testing | Manual test-case spreadsheet | dbt data tests |
 
 ---
@@ -48,7 +48,7 @@ usage fact tables.
                 ┌───────┴────────┐                    ┌────────┴───────┐
                 │  Billing_Data  │                    │ Billing_Voice  │
                 └───────┬────────┘                    └────────┬───────┘
-                        └──────────────┬─────────────────────-─┘
+                        └──────────────┬──────────────────────-┘
                                 ┌──────┴───────┐
                                 │ Plan_Master  │
                                 │ (rate card)  │
@@ -77,12 +77,21 @@ and calculate billing.
 | `trn_data_plan` | 729 | Joins to rate card; `billable = consumed × rate_per_kb` |
 | `trn_voice_plan` | 737 | Joins to rate card; allowance-based billing for voice and SMS |
 
+Staging tables are declared as dbt sources in `models/staging/sources.yml`, so the full
+lineage — raw tables through to billing — renders in the generated docs.
+
 **Testing** — 26 dbt tests covering primary-key uniqueness, non-null constraints, referential
 integrity between usage facts and the rate card, and accepted values for loyalty tiers.
 
-```bash
-dbt run && dbt test
+**Orchestration** — `airflow/dags/slipstream_pipeline.py` chains the pipeline into a scheduled
+DAG, replacing the original `loadStg.sh`:
+
 ```
+stage_source_files → ingest_csv_to_duckdb → dbt_run → dbt_test
+```
+
+Each task only runs if the previous one succeeded, failures retry once after two minutes, and
+every run's logs are retained. Scheduled daily at 02:00.
 
 ---
 
@@ -219,6 +228,8 @@ RIGHT(Address, 5)                            -- PIN
 
 ## Running it
 
+### Pipeline only
+
 ```bash
 python -m venv venv
 source venv/Scripts/activate          # Windows; use venv/bin/activate elsewhere
@@ -237,6 +248,55 @@ dbt test
 `datasources/` holds the source CSVs and is version-controlled. `data/` is a working directory
 rebuilt on every run and is not tracked.
 
+### Documentation and lineage
+
+```bash
+cd slipstream_dbt
+dbt docs generate
+dbt docs serve --port 8081
+```
+
+Port 8081 avoids colliding with Airflow on 8080.
+
+### Orchestration
+
+Airflow has no native Windows support, so it runs under WSL. Two details are worth knowing
+before reproducing this:
+
+**dbt and Airflow cannot share a virtualenv.** Their dependency pins conflict directly —
+`protobuf`, `click`, `jinja2`, `typing-extensions` and `sqlparse` all resolve to incompatible
+versions. Installing both in one environment leaves whichever was installed last in a broken
+state. They are kept separate, and the DAG invokes dbt by absolute path:
+
+```bash
+python3.12 -m venv ~/airflow-venv
+source ~/airflow-venv/bin/activate
+pip install "apache-airflow==2.10.5" \
+  --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.5/constraints-3.12.txt"
+
+python3.12 -m venv ~/dbt-venv
+source ~/dbt-venv/bin/activate
+pip install dbt-duckdb pandas duckdb pyarrow
+```
+
+**`AIRFLOW_HOME` must live on the Linux filesystem.** Airflow's SQLite metadata database hits
+file-locking problems under `/mnt/c`. The project itself can stay on the Windows side; only
+Airflow's internals need to be native.
+
+```bash
+source ~/airflow-venv/bin/activate
+export AIRFLOW_HOME=~/airflow
+export AIRFLOW__CORE__DAGS_FOLDER=/mnt/c/.../slipstream-elt-modernization/airflow/dags
+export AIRFLOW__CORE__LOAD_EXAMPLES=False
+airflow standalone
+```
+
+The UI is then at `localhost:8080`. dbt also needs its own `~/.dbt/profiles.yml` inside WSL,
+with a Linux path to `slipstream.duckdb`.
+
+Airflow requires Python ≤ 3.12. Ubuntu 26.04 ships 3.14 only, so 3.12 was installed from the
+deadsnakes PPA.
+
 ---
 
 ## Repository layout
@@ -244,7 +304,8 @@ rebuilt on every run and is not tracked.
 ```
 ingestion/ingest.py                   CSV → DuckDB staging
 datasources/                          source CSVs, ERD, mapping spec, test cases
-slipstream_dbt/models/staging/        six transformation models + tests
+slipstream_dbt/models/staging/        six transformation models, sources, tests
+airflow/dags/                         pipeline DAG
 data/                                 working directory (gitignored)
 ```
 
@@ -255,6 +316,7 @@ data/                                 working directory (gitignored)
 - [x] Ingestion — 10 CSVs → 6 staging tables
 - [x] Transformation — 6 dbt models
 - [x] Data tests — 26 passing
-- [ ] Orchestration — Airflow DAG
+- [x] Source declarations and lineage docs
+- [x] Orchestration — Airflow DAG
 - [ ] Alerting — Slack notifications on failure
 - [ ] Dashboard
