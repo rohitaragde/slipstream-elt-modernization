@@ -161,7 +161,11 @@ The tools were the easy part. These are the judgment calls that made the data tr
 python ingestion/ingest.py
 
 # 2. Build + test the dbt models
-cd slipstream_dbt && dbt run && dbt test && cd ..
+cd slipstream_dbt && dbt run && dbt test
+
+# (optional) generate + view the lineage docs, then return to root
+dbt docs generate && dbt docs serve --port 8081
+cd ..
 
 # 3. Run the data-quality gate
 python quality/report.py
